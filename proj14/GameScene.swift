@@ -1,89 +1,156 @@
-//
-//  GameScene.swift
-//  proj14
-//
-//  Created by dh on 10/7/16.
-//  Copyright © 2016 dhfromkorea. All rights reserved.
-//
-
 import SpriteKit
 import GameplayKit
 
 class GameScene: SKScene {
-    
-    private var label : SKLabelNode?
-    private var spinnyNode : SKShapeNode?
+    var gameScore: SKLabelNode!
+    var score: Int = 0 {
+        didSet {
+            gameScore.text = "Score: \(score)"
+        }
+    }
+    var slots = [WhackSlot]()
+    var popupTime = 0.85
+    var numOfRounds = 0
     
     override func didMove(to view: SKView) {
+        setBackground()
+        setGameScore()
+        createSlots()
         
-        // Get label node from scene and store it for use later
-        self.label = self.childNode(withName: "//helloLabel") as? SKLabelNode
-        if let label = self.label {
-            label.alpha = 0.0
-            label.run(SKAction.fadeIn(withDuration: 2.0))
-        }
-        
-        // Create shape node to use during mouse interaction
-        let w = (self.size.width + self.size.height) * 0.05
-        self.spinnyNode = SKShapeNode.init(rectOf: CGSize.init(width: w, height: w), cornerRadius: w * 0.3)
-        
-        if let spinnyNode = self.spinnyNode {
-            spinnyNode.lineWidth = 2.5
-            
-            spinnyNode.run(SKAction.repeatForever(SKAction.rotate(byAngle: CGFloat(M_PI), duration: 1)))
-            spinnyNode.run(SKAction.sequence([SKAction.wait(forDuration: 0.5),
-                                              SKAction.fadeOut(withDuration: 0.5),
-                                              SKAction.removeFromParent()]))
-        }
-    }
-    
-    
-    func touchDown(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.green
-            self.addChild(n)
-        }
-    }
-    
-    func touchMoved(toPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.blue
-            self.addChild(n)
-        }
-    }
-    
-    func touchUp(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.red
-            self.addChild(n)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [unowned self] in
+            self.createEnemy()
         }
     }
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if let label = self.label {
-            label.run(SKAction.init(named: "Pulse")!, withKey: "fadeInOut")
+        guard let touch = touches.first else { return }
+        
+        let location = touch.location(in: self)
+        let tappedNodes = nodes(at: location)
+        
+        for node in tappedNodes {
+            guard let name = node.name else { continue }
+            
+            switch name {
+            case "charFriend":
+                let whackSlot = node.parent!.parent as! WhackSlot
+                
+                whackSlot.hit() { [unowned self] in
+                    self.score -= 5
+                    let action = SKAction.playSoundFileNamed("whackBad.caf", waitForCompletion: false)
+                    self.run(action)
+                }
+            case "charEnemy":
+                let whackSlot = node.parent!.parent as! WhackSlot
+                whackSlot.charNode.xScale = 0.85
+                whackSlot.charNode.yScale = 0.85
+                
+                whackSlot.hit() { [unowned self] in
+                    self.score += 1
+                    let action = SKAction.playSoundFileNamed("whack", waitForCompletion: false)
+                    self.run(action)
+                }
+            case "gameContinue":
+                node.parent?.childNode(withName: "gameOver")?.removeFromParent()
+                node.removeFromParent()
+                restartGame()
+            default:
+                continue
+
+            }
+        }
+    }
+    func setBackground() {
+        let background = SKSpriteNode(imageNamed: "whackBackground")
+        background.position = CGPoint(x: 512, y: 384)
+        background.blendMode = .replace
+        background.zPosition = -1
+        addChild(background)
+    }
+    func setGameScore() {
+        gameScore = SKLabelNode(fontNamed: "Chalkduster")
+        gameScore.text = "Score: 0"
+        gameScore.position = CGPoint(x: 8, y: 8)
+        gameScore.horizontalAlignmentMode = .left
+        gameScore.fontSize = 48
+        addChild(gameScore)
+    }
+    
+    func createSlots() {
+        for i in 0 ..< 5 { createSlot(at: CGPoint(x: 100 + (i * 170), y: 410)) }
+        for i in 0 ..< 4 { createSlot(at: CGPoint(x: 180 + (i * 170), y: 320)) }
+        for i in 0 ..< 5 { createSlot(at: CGPoint(x: 100 + (i * 170), y: 230)) }
+        for i in 0 ..< 4 { createSlot(at: CGPoint(x: 180 + (i * 170), y: 140)) }
+    }
+    
+    func createSlot(at position: CGPoint) {
+        let slot = WhackSlot()
+        slot.configure(at: position)
+        addChild(slot)
+        slots.append(slot)
+    }
+    
+    func createEnemy() {
+        numOfRounds += 1
+        guard numOfRounds < 30  else {
+            setGameOver()
+            return
         }
         
-        for t in touches { self.touchDown(atPoint: t.location(in: self)) }
+        popupTime *= 0.991
+        
+        slots = GKRandomSource.sharedRandom().arrayByShufflingObjects(in: slots) as! [WhackSlot]
+        slots[0].show(hideTime: popupTime)
+        
+        if RandomInt(min: 0, max: 12) > 4 { slots[1].show(hideTime: popupTime) }
+        if RandomInt(min: 0, max: 12) > 8 { slots[2].show(hideTime: popupTime) }
+        if RandomInt(min: 0, max: 12) > 10 { slots[3].show(hideTime: popupTime) }
+        if RandomInt(min: 0, max: 12) > 11 { slots[4].show(hideTime: popupTime) }
+        
+        let minDelay = popupTime / 2.0
+        let maxDelay = popupTime * 2
+        
+        let delay = RandomDouble(min: minDelay, max: maxDelay)
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [unowned self] in
+            self.createEnemy()
+        }
     }
     
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchMoved(toPoint: t.location(in: self)) }
+    func setGameOver() {
+        for slot in slots {
+            slot.hide()
+            
+        }
+        
+        let gameOver = SKSpriteNode(imageNamed: "gameOver")
+        gameOver.name = "gameOver"
+        gameOver.position = CGPoint(x: 512, y: 384)
+        gameOver.zPosition = 1
+        addChild(gameOver)
+        
+        let gameContinue = SKLabelNode(fontNamed: "chalkduster")
+        gameContinue.text = "Continue?"
+        gameContinue.position = CGPoint(x: 512, y: 200)
+        gameContinue.horizontalAlignmentMode = .center
+        gameContinue.fontSize = 60
+        gameContinue.zPosition = 1
+        gameContinue.name = "gameContinue"
+        addChild(gameContinue)
+        
     }
     
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchUp(atPoint: t.location(in: self)) }
+    func restartGame() {
+        slots = [WhackSlot]()
+        createSlots()
+        
+        score = 0
+        numOfRounds = 0
+        popupTime = 0.85
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [unowned self] in
+            self.createEnemy()
+        }
     }
     
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchUp(atPoint: t.location(in: self)) }
-    }
-    
-    
-    override func update(_ currentTime: TimeInterval) {
-        // Called before each frame is rendered
-    }
 }
